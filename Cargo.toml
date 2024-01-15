@@ -3,6 +3,10 @@ name = "note-duel"
 version = "0.1.0"
 authors = ["benthecarman <benthecarman@live.com>"]
 edition = "2018"
+license = "MIT"
+repository = "https://github.com/MutinyWallet/note-duel"
+description = "Do bets on nostr notes"
+keywords = ["nostr"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
