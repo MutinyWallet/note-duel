@@ -7,7 +7,10 @@ pub enum Error {
     InvalidArguments,
     /// Error during signing
     #[error("Error during signing")]
-    SigningError,
+    Signing,
+    /// Error getting nostr events
+    #[error("Error getting nostr events")]
+    Nostr,
 }
 
 impl From<nostr::key::Error> for Error {
@@ -17,7 +20,7 @@ impl From<nostr::key::Error> for Error {
             nostr::key::Error::InvalidPublicKey => Self::InvalidArguments,
             nostr::key::Error::SkMissing => Self::InvalidArguments,
             nostr::key::Error::InvalidChar(_) => Self::InvalidArguments,
-            nostr::key::Error::Secp256k1(_) => Self::SigningError,
+            nostr::key::Error::Secp256k1(_) => Self::Signing,
         }
     }
 }
@@ -28,13 +31,31 @@ impl From<nostr::prelude::hex::Error> for Error {
     }
 }
 
+impl From<serde_json::Error> for Error {
+    fn from(_: serde_json::Error) -> Self {
+        Self::InvalidArguments
+    }
+}
+
+impl From<base64::DecodeError> for Error {
+    fn from(_: base64::DecodeError) -> Self {
+        Self::InvalidArguments
+    }
+}
+
+impl From<nostr_sdk::client::Error> for Error {
+    fn from(_: nostr_sdk::client::Error) -> Self {
+        Self::Nostr
+    }
+}
+
 impl From<dlc::Error> for Error {
     fn from(e: dlc::Error) -> Self {
         match e {
-            dlc::Error::Secp256k1(_) => Self::SigningError,
-            dlc::Error::Sighash(_) => Self::SigningError,
+            dlc::Error::Secp256k1(_) => Self::Signing,
+            dlc::Error::Sighash(_) => Self::Signing,
             dlc::Error::InvalidArgument => Self::InvalidArguments,
-            dlc::Error::Miniscript(_) => Self::SigningError,
+            dlc::Error::Miniscript(_) => Self::Signing,
         }
     }
 }

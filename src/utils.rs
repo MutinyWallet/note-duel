@@ -17,9 +17,9 @@ pub fn set_panic_hook() {
 }
 
 fn decode_bytes(str: &str) -> Result<Vec<u8>, Error> {
-    match base64::decode(str) {
+    match FromHex::from_hex(str) {
         Ok(bytes) => Ok(bytes),
-        Err(_) => Ok(FromHex::from_hex(str)?),
+        Err(_) => Ok(base64::decode(str)?),
     }
 }
 

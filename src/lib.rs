@@ -1,21 +1,19 @@
-#[cfg(target_arch = "wasm32")]
 use crate::utils::{oracle_announcement_from_str, oracle_attestation_from_str};
-#[cfg(target_arch = "wasm32")]
 use dlc::secp256k1_zkp::hashes::hex::ToHex;
 use dlc::secp256k1_zkp::hashes::sha256;
 use dlc::secp256k1_zkp::{All, Secp256k1};
 use dlc::OracleInfo;
 use dlc_messages::oracle_msgs::{OracleAnnouncement, OracleAttestation};
 use error::Error;
-#[cfg(target_arch = "wasm32")]
+use gloo_utils::format::JsValueSerdeExt;
+use lightning::util::ser::Readable;
 use nostr::key::FromSkStr;
 use nostr::key::SecretKey;
-#[cfg(target_arch = "wasm32")]
 use nostr::prelude::hex::FromHex;
-#[cfg(target_arch = "wasm32")]
-use nostr::JsonUtil;
-use nostr::{EventId, Kind, Timestamp, ToBech32};
+use nostr::{Event, EventId, Filter, Kind, Timestamp};
+use nostr::{JsonUtil, ToBech32};
 use nostr::{Keys, UnsignedEvent};
+use nostr_sdk::Client;
 use rand::rngs::ThreadRng;
 use schnorr_fun::adaptor::{Adaptor, EncryptedSignature};
 use schnorr_fun::fun::marker::{EvenY, NonZero, Normal, Public};
@@ -23,24 +21,38 @@ use schnorr_fun::fun::{KeyPair, Point};
 use schnorr_fun::nonce::{GlobalRng, Synthetic};
 use schnorr_fun::{adaptor::EncryptedSign, fun::Scalar, Message, Schnorr, Signature};
 use sha2::Sha256;
-#[cfg(target_arch = "wasm32")]
+use std::time::Duration;
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
 mod error;
-#[cfg(any(test, target_arch = "wasm32"))]
+pub mod models;
 mod utils;
 
+const RELAYS: [&str; 10] = [
+    "wss://nostr.mutinywallet.com",
+    "wss://relay.snort.social",
+    "wss://nos.lol",
+    "wss://nostr.fmt.wiz.biz",
+    "wss://relay.damus.io",
+    "wss://relay.primal.net",
+    "wss://nostr.wine",
+    "wss://relay.nostr.band",
+    "wss://nostr.zbd.gg",
+    "wss://relay.nos.social",
+];
+
 #[derive(Clone)]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[wasm_bindgen]
 pub struct NoteDuel {
     keys: Keys,
     signing_keypair: KeyPair<EvenY>,
     schnorr: Schnorr<Sha256, Synthetic<Sha256, GlobalRng<ThreadRng>>>,
+    client: Client,
     secp: Secp256k1<All>,
 }
 
 impl NoteDuel {
-    pub fn new(secret_key: SecretKey) -> Result<NoteDuel, Error> {
+    pub async fn new(secret_key: SecretKey) -> Result<NoteDuel, Error> {
         let keys = Keys::new(secret_key);
         let nonce_gen = Synthetic::<Sha256, GlobalRng<ThreadRng>>::default();
         let schnorr = Schnorr::<Sha256, _>::new(nonce_gen);
@@ -50,10 +62,15 @@ impl NoteDuel {
         let signing_keypair = schnorr.new_keypair(scalar);
         let secp: Secp256k1<All> = Secp256k1::gen_new();
 
+        let client = Client::new(&keys);
+        client.add_relays(RELAYS).await?;
+        client.connect().await;
+
         Ok(Self {
             keys,
             signing_keypair,
             schnorr,
+            client,
             secp,
         })
     }
@@ -147,16 +164,40 @@ impl NoteDuel {
 
         self.decrypt_signature(s_value, encrypted_sig)
     }
+
+    /// Returns DLC oracle announcements
+    pub async fn get_oracle_events(&self) -> Result<Vec<OracleAnnouncement>, Error> {
+        let filter = Filter::new().kind(Kind::Custom(88)).limit(20);
+
+        let events = self
+            .client
+            .get_events_of(vec![filter], Some(Duration::from_secs(3)))
+            .await?;
+
+        Ok(events
+            .into_iter()
+            .filter_map(decode_announcement_event)
+            .collect())
+    }
 }
 
-#[cfg(target_arch = "wasm32")]
+fn decode_announcement_event(event: Event) -> Option<OracleAnnouncement> {
+    if event.kind.as_u64() == 88 {
+        let bytes = base64::decode(event.content).ok()?;
+        let mut cursor = std::io::Cursor::new(&bytes);
+        OracleAnnouncement::read(&mut cursor).ok()
+    } else {
+        None
+    }
+}
+
 #[wasm_bindgen]
 impl NoteDuel {
     #[wasm_bindgen(constructor)]
-    pub fn new_wasm(nsec: String) -> Result<NoteDuel, Error> {
+    pub async fn new_wasm(nsec: String) -> Result<NoteDuel, Error> {
         utils::set_panic_hook();
         let keys = Keys::from_sk_str(&nsec)?;
-        Self::new(keys.secret_key().expect("just created"))
+        Self::new(keys.secret_key().expect("just created")).await
     }
 
     /// Get current pubkey
@@ -205,21 +246,42 @@ impl NoteDuel {
         let sig = self.complete_signature(encrypted_sig, attestation)?;
         Ok(sig.to_bytes().to_hex())
     }
+
+    /// Returns DLC oracle announcements
+    pub async fn get_oracle_events_wasm(
+        &self,
+    ) -> Result<JsValue /* Vec<models::Announcement> */, Error> {
+        let vec = self.get_oracle_events().await?;
+        let vec: Vec<models::Announcement> = vec.into_iter().map(|i| i.into()).collect();
+        Ok(JsValue::from_serde(&vec)?)
+    }
+
+    /// Decodes an oracle announcements
+    pub fn decode_announcement(str: String) -> Result<models::Announcement, Error> {
+        let ann = oracle_announcement_from_str(&str)?;
+        Ok(ann.into())
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::utils::{oracle_announcement_from_str, oracle_attestation_from_str};
     use crate::NoteDuel;
+    use nostr::key::FromSkStr;
     use nostr::Keys;
+    use wasm_bindgen_test::{wasm_bindgen_test as test, wasm_bindgen_test_configure};
+
+    wasm_bindgen_test_configure!(run_in_browser);
 
     const ANNOUNCEMENT: &str = "00fa6568a68af95dcc8eec11bb92948e09d09fcdb7fc17a0806e3d3087534e4ae9b5de2c5265035ff5e3ebffa39e664b243955a3599280487d46bc045159b3cc5c1ef2cc6453c9b672ecb7186fa59462d69bf7d12052bbe31ac570b36b68e2b3fdd822350001cd026e5319cce1525324702134fe192c0c81f5335b79e3a090f702e144e13e3465a5c700fdd806060002016101620474657374";
     const ATTESTATION: &str = "5c1ef2cc6453c9b672ecb7186fa59462d69bf7d12052bbe31ac570b36b68e2b30001cd026e5319cce1525324702134fe192c0c81f5335b79e3a090f702e144e13e348985893b864fc0e1c68a4a40b45bff0bb378e90d535c5d7ce04e1e2abc6a762800010161";
 
     #[test]
-    fn test_full_flow() {
-        let nsec = Keys::generate();
-        let duel = NoteDuel::new(nsec.secret_key().unwrap()).unwrap();
+    async fn test_full_flow() {
+        let nsec =
+            Keys::from_sk_str("486206d532e6cbafae4a5dadd7cd7fe82db5acc57b352d86e447cf53b176501d")
+                .unwrap();
+        let duel = NoteDuel::new(nsec.secret_key().unwrap()).await.unwrap();
 
         let ann = oracle_announcement_from_str(ANNOUNCEMENT).unwrap();
         let att = oracle_attestation_from_str(ATTESTATION).unwrap();
