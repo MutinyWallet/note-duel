@@ -3,6 +3,7 @@ use dlc_messages::oracle_msgs::{OracleAnnouncement, OracleAttestation};
 use lightning::util::ser::Readable;
 use std::io::Cursor;
 
+#[cfg(target_arch = "wasm32")]
 pub fn set_panic_hook() {
     // When the `console_error_panic_hook` feature is enabled, we can call the
     // `set_panic_hook` function at least once during initialization, and then
