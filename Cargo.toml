@@ -1,0 +1,37 @@
+[package]
+name = "note-duel"
+version = "0.1.0"
+authors = ["benthecarman <benthecarman@live.com>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+bincode = "1.0"
+dlc = { git = "https://github.com/benthecarman/rust-dlc", branch = "mutiny", features = ["use-serde"] }
+dlc-messages = { git = "https://github.com/benthecarman/rust-dlc", branch = "mutiny", features = ["use-serde"] }
+nostr = "0.26.2"
+lightning = "0.0.118"
+schnorr_fun = { version = "0.9.1", features = ["bincode", "serde"] }
+sha2 = "0.10.8"
+rand = "0.8.5"
+wasm-bindgen = "0.2.90"
+
+getrandom = { version = "0.2", features = ["js"] }
+
+# The `console_error_panic_hook` crate provides better debugging of panics by
+# logging them with `console.error`. This is great for development, but requires
+# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
+# code size when deploying.
+console_error_panic_hook = { version = "0.1.7", optional = true }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.40"
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
