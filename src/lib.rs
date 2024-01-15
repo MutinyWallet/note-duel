@@ -1,5 +1,5 @@
 #[cfg(target_arch = "wasm32")]
-use crate::utils::{oracle_announcement_from_hex, oracle_attestation_from_hex};
+use crate::utils::{oracle_announcement_from_str, oracle_attestation_from_str};
 #[cfg(target_arch = "wasm32")]
 use dlc::secp256k1_zkp::hashes::hex::ToHex;
 use dlc::secp256k1_zkp::hashes::sha256;
@@ -165,7 +165,7 @@ impl NoteDuel {
         losing_message: String,
         announcement: String,
     ) -> Result<JsValue, Error> {
-        let announcement = oracle_announcement_from_hex(&announcement)?;
+        let announcement = oracle_announcement_from_str(&announcement)?;
         let unsigned = self.create_unsigned_event(&losing_message, &announcement);
 
         Ok(JsValue::from(&unsigned.as_json()))
@@ -178,7 +178,7 @@ impl NoteDuel {
         announcement: String,
         outcomes: Vec<String>,
     ) -> Result<Vec<String>, Error> {
-        let announcement = oracle_announcement_from_hex(&announcement)?;
+        let announcement = oracle_announcement_from_str(&announcement)?;
         let sigs = self.create_tweaked_signatures(&losing_message, announcement, outcomes)?;
 
         Ok(sigs
@@ -195,7 +195,7 @@ impl NoteDuel {
     ) -> Result<String, Error> {
         let bytes: Vec<u8> = FromHex::from_hex(&encrypted_sig)?;
         let encrypted_sig: EncryptedSignature = bincode::deserialize(&bytes)?;
-        let attestation = oracle_attestation_from_hex(&attestation)?;
+        let attestation = oracle_attestation_from_str(&attestation)?;
 
         let sig = self.complete_signature(encrypted_sig, attestation)?;
         Ok(sig.to_bytes().to_hex())
@@ -204,7 +204,7 @@ impl NoteDuel {
 
 #[cfg(test)]
 mod test {
-    use crate::utils::{oracle_announcement_from_hex, oracle_attestation_from_hex};
+    use crate::utils::{oracle_announcement_from_str, oracle_attestation_from_str};
     use crate::NoteDuel;
     use nostr::Keys;
 
@@ -216,8 +216,8 @@ mod test {
         let nsec = Keys::generate();
         let duel = NoteDuel::new(nsec.secret_key().unwrap()).unwrap();
 
-        let ann = oracle_announcement_from_hex(ANNOUNCEMENT).unwrap();
-        let att = oracle_attestation_from_hex(ATTESTATION).unwrap();
+        let ann = oracle_announcement_from_str(ANNOUNCEMENT).unwrap();
+        let att = oracle_attestation_from_str(ATTESTATION).unwrap();
         let losing_message = "I lost";
 
         let unsigned = duel.create_unsigned_event(losing_message, &ann);

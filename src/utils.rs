@@ -16,17 +16,24 @@ pub fn set_panic_hook() {
     console_error_panic_hook::set_once();
 }
 
-/// Parses a hex string into an oracle announcement.
-pub(crate) fn oracle_announcement_from_hex(hex: &str) -> Result<OracleAnnouncement, Error> {
-    let bytes: Vec<u8> = FromHex::from_hex(hex)?;
+fn decode_bytes(str: &str) -> Result<Vec<u8>, Error> {
+    match base64::decode(str) {
+        Ok(bytes) => Ok(bytes),
+        Err(_) => Ok(FromHex::from_hex(str)?),
+    }
+}
+
+/// Parses a string into an oracle announcement.
+pub(crate) fn oracle_announcement_from_str(str: &str) -> Result<OracleAnnouncement, Error> {
+    let bytes = decode_bytes(str)?;
     let mut cursor = Cursor::new(bytes);
 
     Ok(OracleAnnouncement::read(&mut cursor)?)
 }
 
-/// Parses a hex string into an oracle attestation.
-pub(crate) fn oracle_attestation_from_hex(hex: &str) -> Result<OracleAttestation, Error> {
-    let bytes: Vec<u8> = FromHex::from_hex(hex)?;
+/// Parses a string into an oracle attestation.
+pub(crate) fn oracle_attestation_from_str(str: &str) -> Result<OracleAttestation, Error> {
+    let bytes = decode_bytes(str)?;
     let mut cursor = Cursor::new(bytes);
 
     Ok(OracleAttestation::read(&mut cursor)?)
