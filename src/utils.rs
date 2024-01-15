@@ -1,6 +1,7 @@
-use dlc::secp256k1_zkp::hashes::hex::FromHex;
+use crate::error::Error;
 use dlc_messages::oracle_msgs::{OracleAnnouncement, OracleAttestation};
 use lightning::util::ser::Readable;
+use nostr::prelude::hex::FromHex;
 use std::io::Cursor;
 
 #[cfg(target_arch = "wasm32")]
@@ -16,17 +17,17 @@ pub fn set_panic_hook() {
 }
 
 /// Parses a hex string into an oracle announcement.
-pub(crate) fn oracle_announcement_from_hex(hex: &str) -> OracleAnnouncement {
-    let bytes: Vec<u8> = FromHex::from_hex(hex).unwrap();
+pub(crate) fn oracle_announcement_from_hex(hex: &str) -> Result<OracleAnnouncement, Error> {
+    let bytes: Vec<u8> = FromHex::from_hex(hex)?;
     let mut cursor = Cursor::new(bytes);
 
-    OracleAnnouncement::read(&mut cursor).unwrap()
+    Ok(OracleAnnouncement::read(&mut cursor)?)
 }
 
 /// Parses a hex string into an oracle attestation.
-pub(crate) fn oracle_attestation_from_hex(hex: &str) -> OracleAttestation {
-    let bytes: Vec<u8> = FromHex::from_hex(hex).unwrap();
+pub(crate) fn oracle_attestation_from_hex(hex: &str) -> Result<OracleAttestation, Error> {
+    let bytes: Vec<u8> = FromHex::from_hex(hex)?;
     let mut cursor = Cursor::new(bytes);
 
-    OracleAttestation::read(&mut cursor).unwrap()
+    Ok(OracleAttestation::read(&mut cursor)?)
 }

@@ -6,6 +6,7 @@ use dlc::secp256k1_zkp::hashes::sha256;
 use dlc::secp256k1_zkp::{All, Secp256k1};
 use dlc::OracleInfo;
 use dlc_messages::oracle_msgs::{OracleAnnouncement, OracleAttestation};
+use error::Error;
 #[cfg(target_arch = "wasm32")]
 use nostr::key::FromSkStr;
 use nostr::key::SecretKey;
@@ -25,6 +26,7 @@ use sha2::Sha256;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
+mod error;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod utils;
 
@@ -38,35 +40,44 @@ pub struct NoteDuel {
 }
 
 impl NoteDuel {
-    pub fn new(secret_key: SecretKey) -> NoteDuel {
+    pub fn new(secret_key: SecretKey) -> Result<NoteDuel, Error> {
         let keys = Keys::new(secret_key);
         let nonce_gen = Synthetic::<Sha256, GlobalRng<ThreadRng>>::default();
         let schnorr = Schnorr::<Sha256, _>::new(nonce_gen);
-        let scalar = Scalar::from_bytes(secret_key.secret_bytes()).unwrap();
-        let signing_keypair = schnorr.new_keypair(scalar.non_zero().unwrap());
+        let scalar =
+            Scalar::from_bytes(secret_key.secret_bytes()).ok_or(Error::InvalidArguments)?;
+        let scalar = scalar.non_zero().ok_or(Error::InvalidArguments)?;
+        let signing_keypair = schnorr.new_keypair(scalar);
         let secp: Secp256k1<All> = Secp256k1::gen_new();
 
-        Self {
+        Ok(Self {
             keys,
             signing_keypair,
             schnorr,
             secp,
-        }
+        })
     }
 
     fn adaptor_sign(&self, encryption_key: [u8; 33], message: EventId) -> EncryptedSignature {
         let encryption_key: Point<Normal, Public, NonZero> =
-            Point::from_bytes(encryption_key).unwrap();
+            Point::from_bytes(encryption_key).expect("Valid pubkey");
         let message = Message::<Public>::raw(message.as_bytes());
 
         self.schnorr
             .encrypted_sign(&self.signing_keypair, &encryption_key, message)
     }
 
-    fn decrypt_signature(&self, s_value: &[u8], encrypted_sig: EncryptedSignature) -> Signature {
-        let scalar: Scalar<Public> = Scalar::from_slice(s_value).unwrap().non_zero().unwrap();
+    fn decrypt_signature(
+        &self,
+        s_value: &[u8],
+        encrypted_sig: EncryptedSignature,
+    ) -> Result<Signature, Error> {
+        let scalar: Scalar<Public> = Scalar::from_slice(s_value)
+            .ok_or(Error::InvalidArguments)?
+            .non_zero()
+            .ok_or(Error::InvalidArguments)?;
 
-        self.schnorr.decrypt_signature(scalar, encrypted_sig)
+        Ok(self.schnorr.decrypt_signature(scalar, encrypted_sig))
     }
 
     /// Creates the unsigned nostr event
@@ -99,7 +110,7 @@ impl NoteDuel {
         losing_message: &str,
         announcement: OracleAnnouncement,
         outcomes: Vec<String>,
-    ) -> Vec<EncryptedSignature> {
+    ) -> Result<Vec<EncryptedSignature>, Error> {
         let event_id = self.create_unsigned_event(losing_message, &announcement).id;
 
         let oracle_info = OracleInfo {
@@ -119,12 +130,11 @@ impl NoteDuel {
                     &self.secp,
                     &[oracle_info.clone()],
                     &[message],
-                )
-                .unwrap();
+                )?;
 
-                self.adaptor_sign(point.serialize(), event_id)
+                Ok(self.adaptor_sign(point.serialize(), event_id))
             })
-            .collect()
+            .collect::<Result<Vec<_>, Error>>()
     }
 
     /// Completes the signatures to becomes a valid signature
@@ -132,9 +142,8 @@ impl NoteDuel {
         &self,
         encrypted_sig: EncryptedSignature,
         attestation: OracleAttestation,
-    ) -> Signature {
-        let (_, s_value) =
-            dlc::secp_utils::schnorrsig_decompose(&attestation.signatures[0]).unwrap();
+    ) -> Result<Signature, Error> {
+        let (_, s_value) = dlc::secp_utils::schnorrsig_decompose(&attestation.signatures[0])?;
 
         self.decrypt_signature(s_value, encrypted_sig)
     }
@@ -144,9 +153,9 @@ impl NoteDuel {
 #[wasm_bindgen]
 impl NoteDuel {
     #[wasm_bindgen(constructor)]
-    pub fn new_wasm(nsec: String) -> Self {
+    pub fn new_wasm(nsec: String) -> Result<NoteDuel, Error> {
         utils::set_panic_hook();
-        let keys = Keys::from_sk_str(&nsec).unwrap();
+        let keys = Keys::from_sk_str(&nsec)?;
         Self::new(keys.secret_key().expect("just created"))
     }
 
@@ -155,11 +164,11 @@ impl NoteDuel {
         &self,
         losing_message: String,
         announcement: String,
-    ) -> JsValue {
-        let announcement = oracle_announcement_from_hex(&announcement);
+    ) -> Result<JsValue, Error> {
+        let announcement = oracle_announcement_from_hex(&announcement)?;
         let unsigned = self.create_unsigned_event(&losing_message, &announcement);
 
-        JsValue::from_str(&unsigned.as_json())
+        Ok(JsValue::from(&unsigned.as_json()))
     }
 
     /// Creates signatures that are encrypted
@@ -168,23 +177,28 @@ impl NoteDuel {
         losing_message: String,
         announcement: String,
         outcomes: Vec<String>,
-    ) -> Vec<String> {
-        let announcement = oracle_announcement_from_hex(&announcement);
-        let sigs = self.create_tweaked_signatures(&losing_message, announcement, outcomes);
+    ) -> Result<Vec<String>, Error> {
+        let announcement = oracle_announcement_from_hex(&announcement)?;
+        let sigs = self.create_tweaked_signatures(&losing_message, announcement, outcomes)?;
 
-        sigs.iter()
-            .map(|s| bincode::serialize(s).unwrap().to_hex())
-            .collect()
+        Ok(sigs
+            .iter()
+            .map(|s| bincode::serialize(s).map(|b| b.to_hex()))
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     /// Completes the signatures to becomes a valid signature
-    pub fn complete_signature_wasm(&self, encrypted_sig: String, attestation: String) -> String {
-        let bytes: Vec<u8> = FromHex::from_hex(&encrypted_sig).unwrap();
-        let encrypted_sig: EncryptedSignature = bincode::deserialize(&bytes).unwrap();
-        let attestation = oracle_attestation_from_hex(&attestation);
+    pub fn complete_signature_wasm(
+        &self,
+        encrypted_sig: String,
+        attestation: String,
+    ) -> Result<String, Error> {
+        let bytes: Vec<u8> = FromHex::from_hex(&encrypted_sig)?;
+        let encrypted_sig: EncryptedSignature = bincode::deserialize(&bytes)?;
+        let attestation = oracle_attestation_from_hex(&attestation)?;
 
-        let sig = self.complete_signature(encrypted_sig, attestation);
-        sig.to_bytes().to_hex()
+        let sig = self.complete_signature(encrypted_sig, attestation)?;
+        Ok(sig.to_bytes().to_hex())
     }
 }
 
@@ -200,17 +214,19 @@ mod test {
     #[test]
     fn test_full_flow() {
         let nsec = Keys::generate();
-        let duel = NoteDuel::new(nsec.secret_key().unwrap());
+        let duel = NoteDuel::new(nsec.secret_key().unwrap()).unwrap();
 
-        let ann = oracle_announcement_from_hex(ANNOUNCEMENT);
-        let att = oracle_attestation_from_hex(ATTESTATION);
+        let ann = oracle_announcement_from_hex(ANNOUNCEMENT).unwrap();
+        let att = oracle_attestation_from_hex(ATTESTATION).unwrap();
         let losing_message = "I lost";
 
         let unsigned = duel.create_unsigned_event(losing_message, &ann);
 
-        let sigs = duel.create_tweaked_signatures(losing_message, ann, vec!["a".to_string()]);
+        let sigs = duel
+            .create_tweaked_signatures(losing_message, ann, vec!["a".to_string()])
+            .unwrap();
 
-        let complete = duel.complete_signature(sigs[0].to_owned(), att);
+        let complete = duel.complete_signature(sigs[0].to_owned(), att).unwrap();
 
         let signature =
             nostr::secp256k1::schnorr::Signature::from_slice(&complete.to_bytes()).unwrap();
