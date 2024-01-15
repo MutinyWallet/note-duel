@@ -14,7 +14,7 @@ use nostr::key::SecretKey;
 use nostr::prelude::hex::FromHex;
 #[cfg(target_arch = "wasm32")]
 use nostr::JsonUtil;
-use nostr::{EventId, Kind, Timestamp};
+use nostr::{EventId, Kind, Timestamp, ToBech32};
 use nostr::{Keys, UnsignedEvent};
 use rand::rngs::ThreadRng;
 use schnorr_fun::adaptor::{Adaptor, EncryptedSignature};
@@ -157,6 +157,11 @@ impl NoteDuel {
         utils::set_panic_hook();
         let keys = Keys::from_sk_str(&nsec)?;
         Self::new(keys.secret_key().expect("just created"))
+    }
+
+    /// Get current pubkey
+    pub fn get_npub(&self) -> String {
+        self.keys.public_key().to_bech32().expect("bech32")
     }
 
     /// Creates the unsigned nostr event
