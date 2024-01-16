@@ -1,4 +1,4 @@
-use crate::api::{ApiClient, PendingBet};
+use crate::api::{ApiClient, UserBet};
 use crate::utils::oracle_announcement_from_str;
 use dlc::secp256k1_zkp::hashes::sha256;
 use dlc::secp256k1_zkp::{All, Secp256k1};
@@ -175,7 +175,7 @@ impl NoteDuel {
 
     pub async fn accept_bet(&self, id: i32) -> Result<(), Error> {
         let events = self.list_pending_events().await?;
-        let event: PendingBet = events
+        let event: UserBet = events
             .into_iter()
             .find(|e| e.id == id)
             .ok_or(Error::PendingEventNotFound)?;
@@ -188,7 +188,7 @@ impl NoteDuel {
         };
 
         let sigs: HashMap<String, EncryptedSignature> = event
-            .needed_outcomes
+            .user_outcomes
             .into_iter()
             .map(|outcome| {
                 let message = vec![
@@ -239,8 +239,12 @@ impl NoteDuel {
             .collect())
     }
 
-    pub async fn list_pending_events(&self) -> Result<Vec<PendingBet>, Error> {
+    pub async fn list_pending_events(&self) -> Result<Vec<UserBet>, Error> {
         self.api.list_pending_bets(self.keys.public_key()).await
+    }
+
+    pub async fn list_events(&self) -> Result<Vec<UserBet>, Error> {
+        self.api.list_bets(self.keys.public_key()).await
     }
 }
 
@@ -301,6 +305,16 @@ impl NoteDuel {
         Ok(JsValue::from_serde(&vec)?)
     }
 
+    pub async fn list_pending_events_wasm(&self) -> Result<JsValue /* Vec<UserBet> */, Error> {
+        let res = self.list_pending_events().await?;
+        Ok(JsValue::from_serde(&res)?)
+    }
+
+    pub async fn list_events_wasm(&self) -> Result<JsValue /* Vec<UserBet> */, Error> {
+        let res = self.list_events().await?;
+        Ok(JsValue::from_serde(&res)?)
+    }
+
     /// Decodes an oracle announcements
     pub fn decode_announcement(str: String) -> Result<models::Announcement, Error> {
         let ann = oracle_announcement_from_str(&str)?;
@@ -310,16 +324,16 @@ impl NoteDuel {
 
 #[cfg(test)]
 mod test {
-    use crate::utils::{oracle_announcement_from_str, oracle_attestation_from_str, sleep};
+    use crate::utils::{oracle_announcement_from_str, sleep};
     use crate::NoteDuel;
     use dlc::secp256k1_zkp::hashes::hex::ToHex;
+    use dlc_messages::oracle_msgs::EventDescriptor;
     use nostr::{EventId, Keys};
     use wasm_bindgen_test::{wasm_bindgen_test as test, wasm_bindgen_test_configure};
 
     wasm_bindgen_test_configure!(run_in_browser);
 
-    const ANNOUNCEMENT: &str = "00fa6568a68af95dcc8eec11bb92948e09d09fcdb7fc17a0806e3d3087534e4ae9b5de2c5265035ff5e3ebffa39e664b243955a3599280487d46bc045159b3cc5c1ef2cc6453c9b672ecb7186fa59462d69bf7d12052bbe31ac570b36b68e2b3fdd822350001cd026e5319cce1525324702134fe192c0c81f5335b79e3a090f702e144e13e3465a5c700fdd806060002016101620474657374";
-    const ATTESTATION: &str = "5c1ef2cc6453c9b672ecb7186fa59462d69bf7d12052bbe31ac570b36b68e2b30001cd026e5319cce1525324702134fe192c0c81f5335b79e3a090f702e144e13e348985893b864fc0e1c68a4a40b45bff0bb378e90d535c5d7ce04e1e2abc6a762800010161";
+    const ANNOUNCEMENT: &str = "ypyyyX6pdZUM+OovHftxK9StImd8F7nxmr/eTeyR/5koOVVe/EaNw1MAeJm8LKDV1w74Fr+UJ+83bVP3ynNmjwKbtJr9eP5ie2Exmeod7kw4uNsuXcw6tqJF1FXH3fTF/dgiOwAByEOAEd95715DKrSLVdN/7cGtOlSRTQ0/LsW/p3BiVOdlpccA/dgGDAACBDEyMzQENDU2NwR0ZXN0";
     const BASE_URL: &str = "https://api.noteduel.com";
 
     #[test]
@@ -334,16 +348,23 @@ mod test {
             .unwrap();
 
         let ann = oracle_announcement_from_str(ANNOUNCEMENT).unwrap();
-        let att = oracle_attestation_from_str(ATTESTATION).unwrap();
         let losing_message = "I lost";
+
+        let outcomes = match ann.oracle_event.event_descriptor {
+            EventDescriptor::EnumEvent(ref e) => e.outcomes.clone(),
+            EventDescriptor::DigitDecompositionEvent(_) => unreachable!(),
+        };
 
         let id = duel_a
             .create_bet(
                 losing_message,
                 ann,
-                EventId::all_zeros(), // fixme
+                EventId::from_hex(
+                    "d30e6c857a900ebefbf7dc3b678ead9215f4345476067e146ded973971286529",
+                )
+                .unwrap(),
                 nsec_b.public_key(),
-                vec!["a".to_string()],
+                vec![outcomes[0].clone()],
             )
             .await
             .unwrap();
@@ -368,6 +389,17 @@ mod test {
 
         duel_b.accept_bet(id).await.unwrap();
 
-        // todo test event is broadcast
+        let events_a = duel_a.list_events().await.unwrap();
+        let events_b = duel_b.list_events().await.unwrap();
+
+        assert_eq!(events_a.len(), 1);
+        assert_eq!(events_b.len(), 1);
+
+        sleep(5_000).await;
+
+        let events_a = duel_a.list_events().await.unwrap();
+        let ev = &events_a[0];
+
+        assert!(ev.outcome_event_id.is_some())
     }
 }

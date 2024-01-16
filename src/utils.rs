@@ -1,5 +1,5 @@
 use crate::error::Error;
-use dlc_messages::oracle_msgs::{OracleAnnouncement, OracleAttestation};
+use dlc_messages::oracle_msgs::OracleAnnouncement;
 use lightning::util::ser::Readable;
 use nostr::prelude::hex::FromHex;
 use std::io::Cursor;
@@ -29,14 +29,6 @@ pub(crate) fn oracle_announcement_from_str(str: &str) -> Result<OracleAnnounceme
     let mut cursor = Cursor::new(bytes);
 
     Ok(OracleAnnouncement::read(&mut cursor)?)
-}
-
-/// Parses a string into an oracle attestation.
-pub(crate) fn oracle_attestation_from_str(str: &str) -> Result<OracleAttestation, Error> {
-    let bytes = decode_bytes(str)?;
-    let mut cursor = Cursor::new(bytes);
-
-    Ok(OracleAttestation::read(&mut cursor)?)
 }
 
 #[cfg(test)]

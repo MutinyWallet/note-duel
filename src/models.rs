@@ -1,6 +1,8 @@
+use crate::api::UserBet;
 use dlc::secp256k1_zkp::hashes::hex::ToHex;
 use dlc_messages::oracle_msgs::{EventDescriptor, OracleAnnouncement, OracleAttestation};
 use gloo_utils::format::JsValueSerdeExt;
+use nostr::{EventId, UnsignedEvent};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::JsValue;
@@ -111,6 +113,42 @@ impl From<OracleAttestation> for Attestation {
             oracle_public_key: value.oracle_public_key.to_hex(),
             signatures: value.signatures.iter().map(|x| x.to_hex()).collect(),
             outcomes: value.outcomes,
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bet {
+    pub id: i32,
+    unsigned_a: UnsignedEvent,
+    unsigned_b: UnsignedEvent,
+    oracle_announcement: String,
+    oracle_event_id: EventId,
+    user_outcomes: Vec<String>,
+    counterparty_outcomes: Vec<String>,
+    outcome_event_id: Option<EventId>,
+}
+
+#[wasm_bindgen]
+impl Bet {
+    #[wasm_bindgen(getter)]
+    pub fn value(&self) -> JsValue {
+        JsValue::from_serde(&serde_json::to_value(self).unwrap()).unwrap()
+    }
+}
+
+impl From<UserBet> for Bet {
+    fn from(value: UserBet) -> Self {
+        Bet {
+            id: value.id,
+            unsigned_a: value.unsigned_a,
+            unsigned_b: value.unsigned_b,
+            oracle_announcement: value.oracle_announcement,
+            oracle_event_id: value.oracle_event_id,
+            user_outcomes: value.user_outcomes,
+            counterparty_outcomes: value.counterparty_outcomes,
+            outcome_event_id: value.outcome_event_id,
         }
     }
 }

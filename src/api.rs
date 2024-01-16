@@ -87,7 +87,7 @@ impl ApiClient {
         }
     }
 
-    pub async fn list_pending_bets(&self, npub: XOnlyPublicKey) -> Result<Vec<PendingBet>, Error> {
+    pub async fn list_pending_bets(&self, npub: XOnlyPublicKey) -> Result<Vec<UserBet>, Error> {
         let request = self
             .client
             .get(format!(
@@ -99,7 +99,26 @@ impl ApiClient {
         let response = self.client.execute(request).await?;
 
         if response.status() == StatusCode::from_u16(200).unwrap() {
-            let bets: Vec<PendingBet> = response.json().await?;
+            let bets: Vec<UserBet> = response.json().await?;
+            Ok(bets)
+        } else {
+            Err(Error::Api)
+        }
+    }
+
+    pub async fn list_bets(&self, npub: XOnlyPublicKey) -> Result<Vec<UserBet>, Error> {
+        let request = self
+            .client
+            .get(format!(
+                "{}/list-bets?pubkey={}",
+                &self.base_url,
+                npub.to_hex()
+            ))
+            .build()?;
+        let response = self.client.execute(request).await?;
+
+        if response.status() == StatusCode::from_u16(200).unwrap() {
+            let bets: Vec<UserBet> = response.json().await?;
             Ok(bets)
         } else {
             Err(Error::Api)
@@ -108,10 +127,13 @@ impl ApiClient {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PendingBet {
+pub struct UserBet {
     pub id: i32,
     pub unsigned_a: UnsignedEvent,
     pub unsigned_b: UnsignedEvent,
     pub oracle_announcement: String,
-    pub needed_outcomes: Vec<String>,
+    pub oracle_event_id: EventId,
+    pub user_outcomes: Vec<String>,
+    pub counterparty_outcomes: Vec<String>,
+    pub outcome_event_id: Option<EventId>,
 }
