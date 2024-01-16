@@ -17,3 +17,7 @@ clippy:
 
 test:
     wasm-pack test --headless --firefox
+
+release:
+    wasm-pack build --release --weak-refs --target web --scope benthecarman
+    wasm-pack publish --access public -t web
