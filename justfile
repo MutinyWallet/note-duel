@@ -14,3 +14,6 @@ check:
 clippy:
     cargo clippy
     cargo clippy --target wasm32-unknown-unknown
+
+test:
+    wasm-pack test --headless --firefox

@@ -38,3 +38,16 @@ pub(crate) fn oracle_attestation_from_str(str: &str) -> Result<OracleAttestation
 
     Ok(OracleAttestation::read(&mut cursor)?)
 }
+
+#[cfg(test)]
+pub async fn sleep(millis: i32) {
+    use wasm_bindgen_futures::js_sys;
+    let mut cb = |resolve: js_sys::Function, _reject: js_sys::Function| {
+        web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, millis)
+            .unwrap();
+    };
+    let p = js_sys::Promise::new(&mut cb);
+    wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
+}

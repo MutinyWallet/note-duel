@@ -11,6 +11,12 @@ pub enum Error {
     /// Error getting nostr events
     #[error("Error getting nostr events")]
     Nostr,
+    /// Error getting talking to api
+    #[error("Error getting talking to api")]
+    Api,
+    /// Pending Event not found
+    #[error("No pending event found")]
+    PendingEventNotFound,
 }
 
 impl From<nostr::key::Error> for Error {
@@ -22,6 +28,24 @@ impl From<nostr::key::Error> for Error {
             nostr::key::Error::InvalidChar(_) => Self::InvalidArguments,
             nostr::key::Error::Secp256k1(_) => Self::Signing,
         }
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(_: reqwest::Error) -> Self {
+        Self::Api
+    }
+}
+
+impl From<nostr::event::id::Error> for Error {
+    fn from(_: nostr::event::id::Error) -> Self {
+        Self::InvalidArguments
+    }
+}
+
+impl From<nostr::nips::nip19::Error> for Error {
+    fn from(_: nostr::nips::nip19::Error) -> Self {
+        Self::InvalidArguments
     }
 }
 
