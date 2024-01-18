@@ -156,6 +156,10 @@ impl NoteDuel {
             return Err(Error::InvalidArguments);
         };
 
+        if all_outcomes.len() == outcomes.len() {
+            return Err(Error::InvalidArguments);
+        }
+
         let sigs: HashMap<String, EncryptedSignature> = all_outcomes
             .into_iter()
             .map(|outcome| {
