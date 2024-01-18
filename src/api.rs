@@ -15,31 +15,33 @@ pub struct ApiClient {
     client: Client,
     base_url: String,
 }
+
 impl ApiClient {
     pub fn new(base_url: String) -> Self {
         let client = Client::new();
         Self { client, base_url }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_bet(
         &self,
         oracle_announcement: OracleAnnouncement,
         oracle_event_id: EventId,
-        unsigned_event: UnsignedEvent,
-        counterparty_unsigned_event: UnsignedEvent,
+        win_event: UnsignedEvent,
+        lose_event: UnsignedEvent,
+        counterparty_win_event: UnsignedEvent,
+        counterparty_lose_event: UnsignedEvent,
         sigs: HashMap<String, EncryptedSignature>,
     ) -> Result<i32, Error> {
         let oracle_announcement = oracle_announcement.encode().to_hex();
-        let sigs: HashMap<String, String> = sigs
-            .into_iter()
-            .map(|(k, v)| (k, bincode::serialize(&v).unwrap().to_hex()))
-            .collect();
 
         let request = json!({
             "oracle_announcement": oracle_announcement,
             "oracle_event_id": oracle_event_id,
-            "unsigned_event": unsigned_event,
-            "counterparty_unsigned_event": counterparty_unsigned_event,
+            "win_event": win_event,
+            "lose_event": lose_event,
+            "counterparty_win_event": counterparty_win_event,
+            "counterparty_lose_event": counterparty_lose_event,
             "sigs": sigs,
         });
 
@@ -63,11 +65,6 @@ impl ApiClient {
         id: i32,
         sigs: HashMap<String, EncryptedSignature>,
     ) -> Result<(), Error> {
-        let sigs: HashMap<String, String> = sigs
-            .into_iter()
-            .map(|(k, v)| (k, bincode::serialize(&v).unwrap().to_hex()))
-            .collect();
-
         let request = json!({
             "id": id,
             "sigs": sigs,
@@ -129,11 +126,14 @@ impl ApiClient {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserBet {
     pub id: i32,
-    pub unsigned_a: UnsignedEvent,
-    pub unsigned_b: UnsignedEvent,
+    pub win_a: UnsignedEvent,
+    pub lose_a: UnsignedEvent,
+    pub win_b: UnsignedEvent,
+    pub lose_b: UnsignedEvent,
     pub oracle_announcement: String,
     pub oracle_event_id: EventId,
     pub user_outcomes: Vec<String>,
     pub counterparty_outcomes: Vec<String>,
-    pub outcome_event_id: Option<EventId>,
+    pub win_outcome_event_id: Option<EventId>,
+    pub lose_outcome_event_id: Option<EventId>,
 }

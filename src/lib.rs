@@ -3,7 +3,7 @@ use crate::utils::oracle_announcement_from_str;
 use dlc::secp256k1_zkp::hashes::sha256;
 use dlc::secp256k1_zkp::{All, Secp256k1};
 use dlc::OracleInfo;
-use dlc_messages::oracle_msgs::{OracleAnnouncement, OracleAttestation};
+use dlc_messages::oracle_msgs::{EventDescriptor, OracleAnnouncement, OracleAttestation};
 use error::Error;
 use gloo_utils::format::JsValueSerdeExt;
 use lightning::util::ser::Readable;
@@ -124,14 +124,20 @@ impl NoteDuel {
     /// Creates signatures that are encrypted
     pub async fn create_bet(
         &self,
+        winning_message: &str,
         losing_message: &str,
         announcement: OracleAnnouncement,
         announcement_id: EventId,
         counter_party: XOnlyPublicKey,
         outcomes: Vec<String>,
     ) -> Result<i32, Error> {
-        let unsigned_event = self.create_unsigned_event(losing_message, &announcement, None);
-        let counter_party_unsigned_event =
+        let winning_unsigned_event =
+            self.create_unsigned_event(winning_message, &announcement, None);
+        let winning_counter_party_unsigned_event =
+            self.create_unsigned_event(winning_message, &announcement, Some(counter_party));
+
+        let losing_unsigned_event = self.create_unsigned_event(losing_message, &announcement, None);
+        let losing_counter_party_unsigned_event =
             self.create_unsigned_event(losing_message, &announcement, Some(counter_party));
 
         let oracle_info = OracleInfo {
@@ -139,7 +145,18 @@ impl NoteDuel {
             nonces: announcement.oracle_event.oracle_nonces.clone(),
         };
 
-        let sigs: HashMap<String, EncryptedSignature> = outcomes
+        let all_outcomes = if let EventDescriptor::EnumEvent(ref desc) =
+            announcement.oracle_event.event_descriptor
+        {
+            if !outcomes.iter().all(|o| desc.outcomes.contains(o)) {
+                return Err(Error::InvalidArguments);
+            }
+            desc.outcomes.clone()
+        } else {
+            return Err(Error::InvalidArguments);
+        };
+
+        let sigs: HashMap<String, EncryptedSignature> = all_outcomes
             .into_iter()
             .map(|outcome| {
                 let message = vec![
@@ -153,7 +170,13 @@ impl NoteDuel {
                     &[message],
                 )?;
 
-                let sig = self.adaptor_sign(point.serialize(), unsigned_event.id);
+                let id = if outcomes.contains(&outcome) {
+                    winning_unsigned_event.id
+                } else {
+                    losing_unsigned_event.id
+                };
+
+                let sig = self.adaptor_sign(point.serialize(), id);
 
                 Ok((outcome, sig))
             })
@@ -164,8 +187,10 @@ impl NoteDuel {
             .create_bet(
                 announcement,
                 announcement_id,
-                unsigned_event,
-                counter_party_unsigned_event,
+                winning_unsigned_event,
+                losing_unsigned_event,
+                winning_counter_party_unsigned_event,
+                losing_counter_party_unsigned_event,
                 sigs,
             )
             .await?;
@@ -187,26 +212,38 @@ impl NoteDuel {
             nonces: ann.oracle_event.oracle_nonces,
         };
 
-        let sigs: HashMap<String, EncryptedSignature> = event
-            .user_outcomes
-            .into_iter()
-            .map(|outcome| {
-                let message = vec![
-                    dlc::secp256k1_zkp::Message::from_hashed_data::<sha256::Hash>(
-                        outcome.as_bytes(),
-                    ),
-                ];
-                let point = dlc::get_adaptor_point_from_oracle_info(
-                    &self.secp,
-                    &[oracle_info.clone()],
-                    &[message],
-                )?;
+        let mut sigs: HashMap<String, EncryptedSignature> =
+            HashMap::with_capacity(event.user_outcomes.len() + event.counterparty_outcomes.len());
 
-                let sig = self.adaptor_sign(point.serialize(), event.unsigned_b.id);
+        for outcome in event.user_outcomes {
+            let message = vec![
+                dlc::secp256k1_zkp::Message::from_hashed_data::<sha256::Hash>(outcome.as_bytes()),
+            ];
+            let point = dlc::get_adaptor_point_from_oracle_info(
+                &self.secp,
+                &[oracle_info.clone()],
+                &[message],
+            )?;
 
-                Ok((outcome, sig))
-            })
-            .collect::<Result<HashMap<_, _>, Error>>()?;
+            let sig = self.adaptor_sign(point.serialize(), event.win_b.id);
+
+            sigs.insert(outcome, sig);
+        }
+
+        for outcome in event.counterparty_outcomes {
+            let message = vec![
+                dlc::secp256k1_zkp::Message::from_hashed_data::<sha256::Hash>(outcome.as_bytes()),
+            ];
+            let point = dlc::get_adaptor_point_from_oracle_info(
+                &self.secp,
+                &[oracle_info.clone()],
+                &[message],
+            )?;
+
+            let sig = self.adaptor_sign(point.serialize(), event.lose_b.id);
+
+            sigs.insert(outcome, sig);
+        }
 
         self.api.add_sigs(id, sigs).await?;
 
@@ -275,6 +312,7 @@ impl NoteDuel {
     /// Creates signatures that are encrypted
     pub async fn create_bet_wasm(
         &self,
+        winning_message: String,
         losing_message: String,
         announcement: String,
         announcement_id: String,
@@ -285,6 +323,7 @@ impl NoteDuel {
         let announcement_id = EventId::from_hex(&announcement_id)?;
         let counter_party = XOnlyPublicKey::from_bech32(counter_party)?;
         self.create_bet(
+            &winning_message,
             &losing_message,
             announcement,
             announcement_id,
@@ -348,6 +387,7 @@ mod test {
             .unwrap();
 
         let ann = oracle_announcement_from_str(ANNOUNCEMENT).unwrap();
+        let winning_message = "I win";
         let losing_message = "I lost";
 
         let outcomes = match ann.oracle_event.event_descriptor {
@@ -357,6 +397,7 @@ mod test {
 
         let id = duel_a
             .create_bet(
+                winning_message,
                 losing_message,
                 ann,
                 EventId::from_hex(
@@ -400,6 +441,7 @@ mod test {
         let events_a = duel_a.list_events().await.unwrap();
         let ev = &events_a[0];
 
-        assert!(ev.outcome_event_id.is_some())
+        assert!(ev.win_outcome_event_id.is_some());
+        assert!(ev.lose_outcome_event_id.is_some());
     }
 }

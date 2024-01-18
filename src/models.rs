@@ -121,13 +121,16 @@ impl From<OracleAttestation> for Attestation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bet {
     pub id: i32,
-    unsigned_a: UnsignedEvent,
-    unsigned_b: UnsignedEvent,
+    win_a: UnsignedEvent,
+    win_b: UnsignedEvent,
+    lose_a: UnsignedEvent,
+    lose_b: UnsignedEvent,
     oracle_announcement: String,
     oracle_event_id: EventId,
     user_outcomes: Vec<String>,
     counterparty_outcomes: Vec<String>,
-    outcome_event_id: Option<EventId>,
+    win_outcome_event_id: Option<EventId>,
+    lose_outcome_event_id: Option<EventId>,
 }
 
 #[wasm_bindgen]
@@ -142,13 +145,16 @@ impl From<UserBet> for Bet {
     fn from(value: UserBet) -> Self {
         Bet {
             id: value.id,
-            unsigned_a: value.unsigned_a,
-            unsigned_b: value.unsigned_b,
+            win_a: value.win_a,
+            lose_a: value.lose_a,
+            win_b: value.win_b,
+            lose_b: value.lose_b,
             oracle_announcement: value.oracle_announcement,
             oracle_event_id: value.oracle_event_id,
             user_outcomes: value.user_outcomes,
             counterparty_outcomes: value.counterparty_outcomes,
-            outcome_event_id: value.outcome_event_id,
+            win_outcome_event_id: value.win_outcome_event_id,
+            lose_outcome_event_id: value.lose_outcome_event_id,
         }
     }
 }
