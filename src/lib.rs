@@ -254,6 +254,11 @@ impl NoteDuel {
         Ok(())
     }
 
+    /// Rejects a bet
+    pub async fn reject_bet(&self, id: i32) -> Result<(), Error> {
+        self.api.reject(id, &self.keys).await
+    }
+
     /// Completes the signatures to becomes a valid signature
     pub fn complete_signature(
         &self,
@@ -341,6 +346,12 @@ impl NoteDuel {
 
     pub async fn accept_bet_wasm(&self, id: i32) -> Result<(), Error> {
         self.accept_bet(id).await?;
+
+        Ok(())
+    }
+
+    pub async fn reject_bet_wasm(&self, id: i32) -> Result<(), Error> {
+        self.reject_bet(id).await?;
 
         Ok(())
     }
@@ -456,5 +467,68 @@ mod test {
 
         assert!(ev.win_outcome_event_id.is_some());
         assert!(ev.lose_outcome_event_id.is_some());
+    }
+
+    #[test]
+    async fn test_reject() {
+        let nsec_a = Keys::generate();
+        let nsec_b = Keys::generate();
+        let duel_a = NoteDuel::new(nsec_a.secret_key().unwrap(), BASE_URL.to_string())
+            .await
+            .unwrap();
+        let duel_b = NoteDuel::new(nsec_b.secret_key().unwrap(), BASE_URL.to_string())
+            .await
+            .unwrap();
+
+        let ann = oracle_announcement_from_str(ANNOUNCEMENT).unwrap();
+        let winning_message = "I win";
+        let losing_message = "I lost";
+
+        let outcomes = match ann.oracle_event.event_descriptor {
+            EventDescriptor::EnumEvent(ref e) => e.outcomes.clone(),
+            EventDescriptor::DigitDecompositionEvent(_) => unreachable!(),
+        };
+
+        let id = duel_a
+            .create_bet(
+                winning_message,
+                losing_message,
+                ann,
+                EventId::from_hex(
+                    "d30e6c857a900ebefbf7dc3b678ead9215f4345476067e146ded973971286529",
+                )
+                .unwrap(),
+                nsec_b.public_key(),
+                vec![outcomes[0].clone()],
+            )
+            .await
+            .unwrap();
+
+        let mut found = false;
+        for _ in 0..5 {
+            let items = duel_b.list_pending_events().await.unwrap_or_default();
+            if items.is_empty() {
+                assert!(!items[0].counterparty_outcomes.is_empty());
+                assert!(!items[0].user_outcomes.is_empty());
+
+                sleep(250).await
+            } else {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            panic!(
+                "Never got pending event {id} {} {}",
+                nsec_a.public_key().to_hex(),
+                nsec_b.public_key().to_hex()
+            );
+        }
+
+        duel_b.reject_bet(id).await.unwrap();
+
+        let items = duel_b.list_pending_events().await.unwrap();
+
+        assert!(items.is_empty());
     }
 }

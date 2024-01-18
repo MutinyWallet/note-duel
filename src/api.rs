@@ -3,7 +3,7 @@ use dlc::secp256k1_zkp::hashes::hex::ToHex;
 use dlc_messages::oracle_msgs::OracleAnnouncement;
 use lightning::util::ser::Writeable;
 use nostr::key::XOnlyPublicKey;
-use nostr::{EventId, UnsignedEvent};
+use nostr::{EventBuilder, EventId, Keys, Kind, UnsignedEvent};
 use reqwest::{Client, StatusCode};
 use schnorr_fun::adaptor::EncryptedSignature;
 use serde::{Deserialize, Serialize};
@@ -73,6 +73,30 @@ impl ApiClient {
         let request = self
             .client
             .post(format!("{}/add-sigs", &self.base_url))
+            .json(&request)
+            .build()?;
+        let response = self.client.execute(request).await?;
+
+        if response.status() == StatusCode::from_u16(200).unwrap() {
+            Ok(())
+        } else {
+            Err(Error::Api)
+        }
+    }
+
+    pub async fn reject(&self, id: i32, keys: &Keys) -> Result<(), Error> {
+        let event = EventBuilder::new(Kind::Custom(99696), format!("reject {}", id), [])
+            .to_event(keys)
+            .unwrap();
+
+        let request = json!({
+            "id": id,
+            "sig": event,
+        });
+
+        let request = self
+            .client
+            .post(format!("{}/reject", &self.base_url))
             .json(&request)
             .build()?;
         let response = self.client.execute(request).await?;
