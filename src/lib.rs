@@ -339,6 +339,12 @@ impl NoteDuel {
         Ok(())
     }
 
+    pub async fn accept_bet_wasm(&self, id: i32) -> Result<(), Error> {
+        self.accept_bet(id).await?;
+
+        Ok(())
+    }
+
     /// Returns DLC oracle announcements
     pub async fn get_oracle_events_wasm(
         &self,
@@ -418,6 +424,9 @@ mod test {
         for _ in 0..5 {
             let items = duel_b.list_pending_events().await.unwrap_or_default();
             if items.is_empty() {
+                assert!(!items[0].counterparty_outcomes.is_empty());
+                assert!(!items[0].user_outcomes.is_empty());
+
                 sleep(250).await
             } else {
                 found = true;
