@@ -121,7 +121,7 @@ impl NoteDuel {
         } else {
             vec![]
         };
-        let event_id = EventId::new(&pubkey, created_at, &Kind::TextNote, &[], message);
+        let event_id = EventId::new(&pubkey, created_at, &Kind::TextNote, &tags, message);
 
         UnsignedEvent {
             id: event_id,
