@@ -9,7 +9,8 @@ use gloo_utils::format::JsValueSerdeExt;
 use lightning::util::ser::Readable;
 use nostr::key::SecretKey;
 use nostr::key::{FromSkStr, XOnlyPublicKey};
-use nostr::{Event, EventId, Filter, FromBech32, Kind, Timestamp, ToBech32};
+use nostr::prelude::Nip19;
+use nostr::{Event, EventId, Filter, FromBech32, Kind, Tag, Timestamp, ToBech32};
 use nostr::{Keys, UnsignedEvent};
 use nostr_sdk::Client;
 use rand::rngs::ThreadRng;
@@ -104,20 +105,31 @@ impl NoteDuel {
     /// Creates the unsigned nostr event
     pub fn create_unsigned_event(
         &self,
-        losing_message: &str,
+        message: &str,
         ann: &OracleAnnouncement,
         pubkey: Option<XOnlyPublicKey>,
+        tagged: Option<XOnlyPublicKey>,
     ) -> UnsignedEvent {
         let pubkey = pubkey.unwrap_or(self.keys.public_key());
         let created_at = Timestamp::from(ann.oracle_event.event_maturity_epoch as u64);
-        let event_id = EventId::new(&pubkey, created_at, &Kind::TextNote, &[], losing_message);
+        let tags = if let Some(public_key) = tagged {
+            vec![Tag::PublicKey {
+                public_key,
+                relay_url: None,
+                alias: None,
+            }]
+        } else {
+            vec![]
+        };
+        let event_id = EventId::new(&pubkey, created_at, &Kind::TextNote, &[], message);
+
         UnsignedEvent {
             id: event_id,
             pubkey,
             created_at,
             kind: Kind::TextNote,
-            tags: vec![],
-            content: losing_message.to_string(),
+            tags,
+            content: message.to_string(),
         }
     }
 
@@ -131,14 +143,33 @@ impl NoteDuel {
         counter_party: XOnlyPublicKey,
         outcomes: Vec<String>,
     ) -> Result<i32, Error> {
-        let winning_unsigned_event =
-            self.create_unsigned_event(winning_message, &announcement, None);
-        let winning_counter_party_unsigned_event =
-            self.create_unsigned_event(winning_message, &announcement, Some(counter_party));
-
-        let losing_unsigned_event = self.create_unsigned_event(losing_message, &announcement, None);
+        let losing_unsigned_event =
+            self.create_unsigned_event(losing_message, &announcement, None, None);
         let losing_counter_party_unsigned_event =
-            self.create_unsigned_event(losing_message, &announcement, Some(counter_party));
+            self.create_unsigned_event(losing_message, &announcement, Some(counter_party), None);
+
+        let winning_unsigned_event = self.create_unsigned_event(
+            &format!(
+                "{winning_message}\nnostr:{}",
+                Nip19::EventId(losing_counter_party_unsigned_event.id)
+                    .to_bech32()
+                    .expect("bech32")
+            ),
+            &announcement,
+            None,
+            Some(counter_party),
+        );
+        let winning_counter_party_unsigned_event = self.create_unsigned_event(
+            &format!(
+                "{winning_message}\nnostr:{}",
+                Nip19::EventId(losing_unsigned_event.id)
+                    .to_bech32()
+                    .expect("bech32")
+            ),
+            &announcement,
+            Some(counter_party),
+            Some(self.keys.public_key()),
+        );
 
         let oracle_info = OracleInfo {
             public_key: announcement.oracle_public_key,
