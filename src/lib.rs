@@ -29,8 +29,9 @@ mod error;
 pub mod models;
 mod utils;
 
-const RELAYS: [&str; 10] = [
+const RELAYS: [&str; 11] = [
     "wss://nostr.mutinywallet.com",
+    "wss://relay.mutinywallet.com",
     "wss://relay.snort.social",
     "wss://nos.lol",
     "wss://nostr.fmt.wiz.biz",
