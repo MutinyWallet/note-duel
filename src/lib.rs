@@ -55,7 +55,11 @@ pub struct NoteDuel {
 }
 
 impl NoteDuel {
-    pub async fn new(secret_key: SecretKey, base_url: String) -> Result<NoteDuel, Error> {
+    pub async fn new(
+        secret_key: SecretKey,
+        base_url: String,
+        relays: Option<Vec<String>>,
+    ) -> Result<NoteDuel, Error> {
         let keys = Keys::new(secret_key);
         let nonce_gen = Synthetic::<Sha256, GlobalRng<ThreadRng>>::default();
         let schnorr = Schnorr::<Sha256, _>::new(nonce_gen);
@@ -68,7 +72,10 @@ impl NoteDuel {
         let api = ApiClient::new(base_url);
 
         let client = Client::new(&keys);
-        client.add_relays(RELAYS).await?;
+
+        client
+            .add_relays(relays.unwrap_or(RELAYS.iter().map(|r| r.to_string()).collect()))
+            .await?;
         client.connect().await;
 
         Ok(Self {
@@ -339,10 +346,14 @@ fn decode_announcement_event(event: Event) -> Option<OracleAnnouncement> {
 #[wasm_bindgen]
 impl NoteDuel {
     #[wasm_bindgen(constructor)]
-    pub async fn new_wasm(nsec: String, base_url: String) -> Result<NoteDuel, Error> {
+    pub async fn new_wasm(
+        nsec: String,
+        base_url: String,
+        relays: Option<Vec<String>>,
+    ) -> Result<NoteDuel, Error> {
         utils::set_panic_hook();
         let keys = Keys::from_sk_str(&nsec)?;
-        Self::new(keys.secret_key().expect("just created"), base_url).await
+        Self::new(keys.secret_key().expect("just created"), base_url, relays).await
     }
 
     /// Get current pubkey
@@ -432,10 +443,10 @@ mod test {
     async fn test_full_flow() {
         let nsec_a = Keys::generate();
         let nsec_b = Keys::generate();
-        let duel_a = NoteDuel::new(nsec_a.secret_key().unwrap(), BASE_URL.to_string())
+        let duel_a = NoteDuel::new(nsec_a.secret_key().unwrap(), BASE_URL.to_string(), None)
             .await
             .unwrap();
-        let duel_b = NoteDuel::new(nsec_b.secret_key().unwrap(), BASE_URL.to_string())
+        let duel_b = NoteDuel::new(nsec_b.secret_key().unwrap(), BASE_URL.to_string(), None)
             .await
             .unwrap();
 
@@ -505,10 +516,10 @@ mod test {
     async fn test_reject() {
         let nsec_a = Keys::generate();
         let nsec_b = Keys::generate();
-        let duel_a = NoteDuel::new(nsec_a.secret_key().unwrap(), BASE_URL.to_string())
+        let duel_a = NoteDuel::new(nsec_a.secret_key().unwrap(), BASE_URL.to_string(), None)
             .await
             .unwrap();
-        let duel_b = NoteDuel::new(nsec_b.secret_key().unwrap(), BASE_URL.to_string())
+        let duel_b = NoteDuel::new(nsec_b.secret_key().unwrap(), BASE_URL.to_string(), None)
             .await
             .unwrap();
 
